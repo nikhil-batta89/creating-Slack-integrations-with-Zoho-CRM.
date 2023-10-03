@@ -1,0 +1,131 @@
+string InviteUser_SlackChannel(string contact_id)
+{
+// Fetch contact details from Zoho CRM
+getContact = zoho.crm.getRecordById("Contacts",contact_id);
+// name_id = getContact.get("id");
+full_name = getContact.get("Full_Name").lower();
+concat_name = full_name.replaceAll(" ","-");
+owner_Program_name = getContact.get("Role_Owner");
+if(owner_Program_name != null)
+{
+	Program_name = owner_Program_name.get("name");
+}
+info "PLACEMENT MANGER : " + Program_name;
+owner_partnership_name = getContact.get("Partner_Track_Owner1");
+if(owner_partnership_name != null)
+{
+	partnership_name = owner_partnership_name.get("name");
+	partnership_first_name = partnership_name.getPrefix(" ");
+	last_name = partnership_name.getSuffix(" ");
+}
+info "PARTNERSHIP SPECIALIST : " + partnership_name;
+body = Map();
+body.put("name",concat_name);
+body.put("is_private","false");
+body.put("team_id","T02234BR171");
+// Set headers for Slack API request
+headersmp = Map();
+headersmp.put("Authorization","Bearer xoxb-2071147851239-5890371295856-HbMg9BPT13yrBRiyTKA5uZPQ");
+headersmp.put("Content-Type","application/json");
+// Make a request to create a Slack channel
+create_slack = invokeurl
+[
+	url :"https://slack.com/api/conversations.create"
+	type :POST
+	parameters:body.toString()
+	headers:headersmp
+];
+Msg = "";
+if(create_slack.getJSON("error") == "name_taken")
+{
+	Msg = "Name already exist";
+}
+else
+{
+	created_slack_id = create_slack.getJson("channel").get("id");
+	if(created_slack_id != null)
+	{
+		crm_map = Map();
+		crm_map.put("Slack_Channel_Link","https://beyond-academy.slack.com/archives/" + created_slack_id);
+		update_crm = zoho.crm.updateRecord("Contacts",contact_id,crm_map);
+		info update_crm;
+	}
+	// /*-------------------- **Get User Information from Slack/Fetch all Users**----------------------*/
+	user_slack = invokeurl
+	[
+		url :"https://slack.com/api/users.list"
+		type :GET
+		headers:headersmp
+		connection:"zoho_crm_to_slack_via_zoho_flow"
+	];
+	getSlack_user = user_slack.getJson("members");
+	/*// Initialize a variable to store the target user's ID */
+	/* Find the user ID based on the condition*/
+	for each  var in getSlack_user
+	{
+		Slack_real_name = var.get("real_name");
+		if(Slack_real_name != null)
+		{
+			if(Program_name != null)
+			{
+				if(Program_name == Slack_real_name)
+				{
+					slack_user_id = var.get("id");
+					info "Slack_id 1 ---" + slack_user_id;
+				}
+			}
+			if(partnership_name != null)
+			{
+				if(partnership_name == Slack_real_name || partnership_first_name.containsIgnoreCase(Slack_real_name) == true)
+				{
+					partner_slack_id = var.get("id");
+					info "Slack_id 2 ---" + partner_slack_id;
+				}
+			}
+		}
+	}
+	/* Prepare data for inviting Placement manger to the slack channnel */
+	body_1 = Map();
+	body_1.put("channel",created_slack_id);
+	body_1.put("users",slack_user_id);
+	info body_1;
+	// Make a request to invite Placement manger user to the Slack channel
+	invite_slack = invokeurl
+	[
+		url :"https://slack.com/api/conversations.invite"
+		type :POST
+		parameters:body_1.toString()
+		headers:headersmp
+		connection:"zoho_crm_to_slack_via_zoho_flow"
+	];
+	info "Invite Placement mangment : " + invite_slack;
+	/* Prepare data for inviting partnership specialist to the slack channnel */
+	body_2 = Map();
+	body_2.put("channel",created_slack_id);
+	body_2.put("users",partner_slack_id);
+	// Make a request to invite  partnership specialist to the Slack channel
+	invite_slack_1 = invokeurl
+	[
+		url :"https://slack.com/api/conversations.invite"
+		type :POST
+		parameters:body_2.toString()
+		headers:headersmp
+		connection:"zoho_crm_to_slack_via_zoho_flow"
+	];
+	info "Invite Partnership specialist : " + invite_slack_1;
+	if(invite_slack.getjson("ok") == true && invite_slack_1.getjson("ok") == true)
+	{
+		Msg = Program_name + "and " + partnership_name + "are invited to slack channel";
+	}
+	else if(invite_slack.getjson("ok") == true || invite_slack_1.getjson("ok") == true)
+	{
+		Msg = "One of the user is not invited to slack channel";
+	}
+	else
+	{
+		Msg = "something went wrong with the user invitation but channel is created in Slack";
+	}
+}
+// Return the result
+return Msg;
+}
